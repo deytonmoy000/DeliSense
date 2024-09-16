@@ -505,21 +505,325 @@ class DeliverySensingEffiencyDispatch:
         return (order_id, courier_id, order['id'], courier['id'])
         dispatch_quotient = self.ranking_quotient_mat*self.cov_quotient_mat
 
+class LSTAloc:  
+
+    def __init__(self, orders, couriers, visited_grids):
+
+        self.orders     = orders
+        self.couriers    = couriers
+        self.orders_f   = set()
+        self.couriers_f  = set()
+        self.od_f       = set()
+        self.sparse = False
+        self.sensing_cov  = visited_grids
+
+        self.cur_min_LONG = 121.135
+        self.cur_max_LONG = 121.8833
+        self.cur_min_LAT = 31.0000
+        self.cur_max_LAT = 31.3821
+        self.block_size = 0.005  # block side length, representing 0.5 km
+
+        self.delivery_incentive_quotient_mat, self.sensing_quotient_mat = self.gen_quotient()
+
+    def reset(self):
+        self.orders_f     = set()
+
+        self.delivery_incentive_quotient_mat, self.sensing_quotient_mat = self.update_quotient()
+
+    def gen_quotient(self):
+        delivery_incentive_quotient_mat = [[] for i in range(len(self.orders))]
+        sensing_quotient_mat = [[] for i in range(len(self.orders))]
+        for i, order in enumerate(self.orders):
+            for j, courier in enumerate(self.couriers):
+                if (i, j) in self.od_f:
+                    delivery_incentive_quotient_mat[i].append(1)
+                    sensing_quotient_mat[i].append(-1e6)
+                    continue
+
+                order_pickup_lat_id = int((self.cur_max_LAT - order['pickup'][1]) // self.block_size)
+                order_pickup_long_id = int((order['pickup'][0] - self.cur_min_LONG) // self.block_size)
+                order_dest_lat_id = int((self.cur_max_LAT - order['destination'][1]) // self.block_size)
+                order_dest_long_id = int((order['destination'][0] - self.cur_min_LONG) // self.block_size)
+                courier_long_id, courier_lat_id = courier['location']
+
+                S_p = max(abs(order_pickup_lat_id - courier_lat_id) , abs(order_pickup_long_id - courier_long_id))
+                S_d = max(abs(order_pickup_lat_id - order_dest_lat_id) , abs(order_pickup_long_id - order_dest_long_id))
+                delivery_time = S_p + S_d
+                
+                if courier['incentive']:
+                    delivery_incentive = np.sum(courier['incentive'])
+                else:
+                    delivery_incentive = 0.1
+                
+                delivery_quotient = 1/delivery_incentive
+
+                delivery_incentive_quotient_mat[i].append(delivery_quotient)
+
+                sensing_reward = 1/(delivery_time + 1e-8)
+                sensing_quotient_mat[i].append(sensing_reward)
+
+        return np.array(delivery_incentive_quotient_mat), np.array(sensing_quotient_mat)
+
+    def get_quotient_mat(self):
+        dispatch_quotient = self.sensing_quotient_mat/self.delivery_incentive_quotient_mat
+        quotient_list = []
+        for i in range(dispatch_quotient.shape[0]):
+            for j in range(dispatch_quotient.shape[1]):
+                quotient_list.append([dispatch_quotient[i, j], i, j])
+        return quotient_list
+
+    def update_quotient(self):
+        delivery_incentive_quotient_mat = [[] for i in range(len(self.orders))]
+        sensing_quotient_mat = [[] for i in range(len(self.orders))]
+        for i, order in enumerate(self.orders):
+            if i in self.orders_f:
+                delivery_incentive_quotient_mat[i].append(1)
+                sensing_quotient_mat[i].append(-1e6)
+                continue
+            for j, courier in enumerate(self.couriers):
+                if j in self.couriers_f:
+                    delivery_incentive_quotient_mat[i].append(1)
+                    sensing_quotient_mat[i].append(-1e6)
+                    continue
+
+                if (i, j) in self.od_f:
+                    delivery_incentive_quotient_mat[i].append(1)
+                    sensing_quotient_mat[i].append(-1e6)
+                    continue
+
+                order_pickup_lat_id = int((self.cur_max_LAT - order['pickup'][1]) // self.block_size)
+                order_pickup_long_id = int((order['pickup'][0] - self.cur_min_LONG) // self.block_size)
+                order_dest_lat_id = int((self.cur_max_LAT - order['destination'][1]) // self.block_size)
+                order_dest_long_id = int((order['destination'][0] - self.cur_min_LONG) // self.block_size)
+                courier_long_id, courier_lat_id = courier['location']
+
+                S_p = max(abs(order_pickup_lat_id - courier_lat_id) , abs(order_pickup_long_id - courier_long_id))
+                S_d = max(abs(order_pickup_lat_id - order_dest_lat_id) , abs(order_pickup_long_id - order_dest_long_id))
+                delivery_time = S_p + S_d
+                
+                if courier['incentive']:
+                    delivery_incentive = np.sum(courier['incentive'])
+                else:
+                    delivery_incentive = 0.001
+                
+                delivery_quotient = 1/delivery_incentive
+
+                delivery_incentive_quotient_mat[i].append(delivery_quotient)
+
+                sensing_reward = 1/(delivery_time + 1e-8)
+                sensing_quotient_mat[i].append(sensing_reward)
+
+        return np.array(delivery_incentive_quotient_mat), np.array(sensing_quotient_mat)
+
+    def get_best_dispatch(self):
+        dispatch_quotient = self.sensing_quotient_mat/self.delivery_incentive_quotient_mat
+
+        action, reward = np.argmax(dispatch_quotient), np.max(dispatch_quotient)
+        order_id, courier_id = divmod(action, len(self.couriers))
+
+        return self.orders[order_id]['id'], self.couriers[courier_id]['id'], reward
+
+    def dispatch(self):
+        dispatch_quotient = self.delivery_incentive_quotient_mat*self.sensing_quotient_mat
+
+        action, reward = np.argmax(dispatch_quotient), np.max(dispatch_quotient)
+        if reward == -1e6:
+            return (-1, -1, -1, -1)
+        order_id, courier_id = divmod(action, len(self.couriers))
+
+        return self.assign(order_id, courier_id)
+
+    def assign(self, order_id, courier_id):
+
+        self.delivery_incentive_quotient_mat[:,courier_id] = 1
+        self.sensing_quotient_mat[:,courier_id] = -1e6
+        self.delivery_incentive_quotient_mat[order_id,:] = 1
+        self.sensing_quotient_mat[order_id,:] = -1e6
+        self.couriers_f.add(courier_id)
+        self.orders_f.add(order_id)
+        self.od_f.add((order_id, courier_id))
+
+        order = self.orders[order_id]
+        courier = self.couriers[courier_id]
+        order_pickup_lat_id = int((self.cur_max_LAT - order['pickup'][1]) // self.block_size)
+        order_pickup_long_id = int((order['pickup'][0] - self.cur_min_LONG) // self.block_size)
+        order_dest_lat_id = int((self.cur_max_LAT - order['destination'][1]) // self.block_size)
+        order_dest_long_id = int((order['destination'][0] - self.cur_min_LONG) // self.block_size)
+        courier_long_id, courier_lat_id = courier['location']
+
+        S_p = max(abs(order_pickup_lat_id - courier_lat_id) , abs(order_pickup_long_id - courier_long_id))
+        S_d = max(abs(order_pickup_lat_id - order_dest_lat_id) , abs(order_pickup_long_id - order_dest_long_id))
+
+        courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
+        courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
+        new_locs = len(courier_path_to_dest_set - self.sensing_cov)
+
+        self.sensing_cov = self.sensing_cov.union(courier_path_to_dest_set)
+        self.update_quotient()
+
+        return (order_id, courier_id, order['id'], courier['id'])
+        dispatch_quotient = self.ranking_quotient_mat*self.cov_quotient_mat
+
+class AJRP:  
+
+    def __init__(self, orders, couriers, visited_grids):
+
+        self.orders     = orders
+        self.couriers    = couriers
+        self.orders_f   = set()
+        self.couriers_f  = set()
+        self.od_f       = set()
+        self.sparse = False
+        self.sensing_cov  = visited_grids
+
+        self.cur_min_LONG = 121.135
+        self.cur_max_LONG = 121.8833
+        self.cur_min_LAT = 31.0000
+        self.cur_max_LAT = 31.3821
+        self.block_size = 0.005  # block side length, representing 0.5 km
+
+        self.delivery_quotient_mat, self.sensing_quotient_mat = self.gen_quotient()
+
+    def reset(self):
+        self.orders_f     = set()
+
+        self.delivery_quotient_mat, self.sensing_quotient_mat = self.update_quotient()
+
+    def gen_quotient(self):
+        delivery_quotient_mat = [[] for i in range(len(self.orders))]
+        sensing_quotient_mat = [[] for i in range(len(self.orders))]
+        for i, order in enumerate(self.orders):
+            for j, courier in enumerate(self.couriers):
+                if (i, j) in self.od_f:
+                    delivery_quotient_mat[i].append(1)
+                    sensing_quotient_mat[i].append(-1e6)
+                    continue
+
+                order_pickup_lat_id = int((self.cur_max_LAT - order['pickup'][1]) // self.block_size)
+                order_pickup_long_id = int((order['pickup'][0] - self.cur_min_LONG) // self.block_size)
+                order_dest_lat_id = int((self.cur_max_LAT - order['destination'][1]) // self.block_size)
+                order_dest_long_id = int((order['destination'][0] - self.cur_min_LONG) // self.block_size)
+                courier_long_id, courier_lat_id = courier['location']
+
+                S_p = max(abs(order_pickup_lat_id - courier_lat_id) , abs(order_pickup_long_id - courier_long_id))
+                S_d = max(abs(order_pickup_lat_id - order_dest_lat_id) , abs(order_pickup_long_id - order_dest_long_id))
+                delivery_time = S_p + S_d
+                time_saved = order['deadline'] - (S_p + S_d)
+                courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
+
+                delivery_quotient = len(courier_path_to_dest)+1
+                delivery_quotient_mat[i].append(delivery_quotient)
+
+                courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
+                n_new_grids = len(courier_path_to_dest_set - self.sensing_cov)
+
+                sensing_reward = n_new_grids+1
+                sensing_quotient_mat[i].append(sensing_reward)
+
+        return np.array(delivery_quotient_mat), np.array(sensing_quotient_mat)
+
+    def get_quotient_mat(self):
+        dispatch_quotient = self.sensing_quotient_mat/self.delivery_quotient_mat
+        quotient_list = []
+        for i in range(dispatch_quotient.shape[0]):
+            for j in range(dispatch_quotient.shape[1]):
+                quotient_list.append([dispatch_quotient[i, j], i, j])
+        return quotient_list
+
+    def update_quotient(self):
+        delivery_quotient_mat = [[] for i in range(len(self.orders))]
+        sensing_quotient_mat = [[] for i in range(len(self.orders))]
+        for i, order in enumerate(self.orders):
+            if i in self.orders_f:
+                delivery_quotient_mat[i].append(1)
+                sensing_quotient_mat[i].append(-1e6)
+                continue
+            for j, courier in enumerate(self.couriers):
+                if j in self.couriers_f:
+                    delivery_quotient_mat[i].append(1)
+                    sensing_quotient_mat[i].append(-1e6)
+                    continue
+
+                if (i, j) in self.od_f:
+                    delivery_quotient_mat[i].append(1)
+                    sensing_quotient_mat[i].append(-1e6)
+                    continue
+
+                order_pickup_lat_id = int((self.cur_max_LAT - order['pickup'][1]) // self.block_size)
+                order_pickup_long_id = int((order['pickup'][0] - self.cur_min_LONG) // self.block_size)
+                order_dest_lat_id = int((self.cur_max_LAT - order['destination'][1]) // self.block_size)
+                order_dest_long_id = int((order['destination'][0] - self.cur_min_LONG) // self.block_size)
+                courier_long_id, courier_lat_id = courier['location']
+
+                S_p = max(abs(order_pickup_lat_id - courier_lat_id) , abs(order_pickup_long_id - courier_long_id))
+                S_d = max(abs(order_pickup_lat_id - order_dest_lat_id) , abs(order_pickup_long_id - order_dest_long_id))
+                delivery_time = S_p + S_d
+                time_saved = order['deadline'] - (S_p + S_d)
+                courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
+
+                delivery_quotient = len(courier_path_to_dest)+1
+                delivery_quotient_mat[i].append(delivery_quotient)
+
+                courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
+                n_new_grids = len(courier_path_to_dest_set - self.sensing_cov)
+
+                sensing_reward = n_new_grids+1
+                sensing_quotient_mat[i].append(sensing_reward)
+
+        return np.array(delivery_quotient_mat), np.array(sensing_quotient_mat)
+
+    def get_best_dispatch(self):
+        dispatch_quotient = self.sensing_quotient_mat/self.delivery_quotient_mat
+
+        action, reward = np.argmax(dispatch_quotient), np.max(dispatch_quotient)
+        order_id, courier_id = divmod(action, len(self.couriers))
+
+        return self.orders[order_id]['id'], self.couriers[courier_id]['id'], reward
+
+    def dispatch(self):
+        dispatch_quotient = self.delivery_quotient_mat*self.sensing_quotient_mat
+
+        action, reward = np.argmax(dispatch_quotient), np.max(dispatch_quotient)
+        if reward == -1e6:
+            return (-1, -1, -1, -1)
+        order_id, courier_id = divmod(action, len(self.couriers))
+
+        return self.assign(order_id, courier_id)
+
+    def assign(self, order_id, courier_id):
+
+        self.delivery_quotient_mat[:,courier_id] = 1
+        self.sensing_quotient_mat[:,courier_id] = -1e6
+        self.delivery_quotient_mat[order_id,:] = 1
+        self.sensing_quotient_mat[order_id,:] = -1e6
+        self.couriers_f.add(courier_id)
+        self.orders_f.add(order_id)
+        self.od_f.add((order_id, courier_id))
+
+        order = self.orders[order_id]
+        courier = self.couriers[courier_id]
+        order_pickup_lat_id = int((self.cur_max_LAT - order['pickup'][1]) // self.block_size)
+        order_pickup_long_id = int((order['pickup'][0] - self.cur_min_LONG) // self.block_size)
+        order_dest_lat_id = int((self.cur_max_LAT - order['destination'][1]) // self.block_size)
+        order_dest_long_id = int((order['destination'][0] - self.cur_min_LONG) // self.block_size)
+        courier_long_id, courier_lat_id = courier['location']
+
+        S_p = max(abs(order_pickup_lat_id - courier_lat_id) , abs(order_pickup_long_id - courier_long_id))
+        S_d = max(abs(order_pickup_lat_id - order_dest_lat_id) , abs(order_pickup_long_id - order_dest_long_id))
+
+        courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
+        courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
+        new_locs = len(courier_path_to_dest_set - self.sensing_cov)
+
+        self.sensing_cov = self.sensing_cov.union(courier_path_to_dest_set)
+        self.update_quotient()
+
+        return (order_id, courier_id, order['id'], courier['id'])
+        dispatch_quotient = self.ranking_quotient_mat*self.cov_quotient_mat
+
+
 def OrderDispatch(orders, couriers, visited_grids, name):
-    ''' 
-    Accelerated lazy algorithm for obtaining the Top ranked couriers for each of the assigned orders.
-    **NOTE** solution sets and values may be different than those found by our implementation, 
-    as the two implementations may break ties differently (i.e. when two elements 
-    have the same marginal value,  the two implementations may not pick the same element to add)
-
-    INPUTS:
-    class objective -- contains the methods 'value()' that we want to optimize and its marginal value function 'marginalval()' 
-    int k -- the cardinality constraint
-    nthreads -- Number of threads to use on each machine
-
-    OUTPUTS:
-    list L -- the solution, where each element in the list is an element in the solution set.
-    '''
+    
 
     if name[:3] == "fdd":
         objective = FastestDeliveryDispatch(orders.copy(), couriers.copy(), visited_grids.copy())
@@ -527,6 +831,10 @@ def OrderDispatch(orders, couriers, visited_grids, name):
         objective = BestSensingDispatch(orders.copy(), couriers.copy(), visited_grids.copy())
     elif name[:3] == "dsd":
         objective = DeliverySensingEffiencyDispatch(orders.copy(), couriers.copy(), visited_grids.copy())
+    elif name[:4] == "lsta":
+        objective = LSTAloc(orders.copy(), couriers.copy(), visited_grids.copy())
+    elif name[:4] == "ajrp":
+        objective = AJRP(orders.copy(), couriers.copy(), visited_grids.copy())
 
     D = []
     if len(orders) == 0:
@@ -657,6 +965,8 @@ if __name__ == "__main__":
                 elif name[-3:] == "rsn":
                     env.rv_sense_reassign(vid)
                 elif name[-3:] == "sdp":
+                    env.rv_sense_sdpr(vid)
+                else:
                     env.rv_sense_sdpr(vid)
 
             env.t += 1    
