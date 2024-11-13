@@ -290,7 +290,7 @@ def gen_state(tfm_map, y, x, tf, km_time):
     return submatrix
 
 class OrderAssignmentEnv:
-    def __init__(self, df, hour, rvs,  visited_grids, val_df=None, interval=60, grid_size=500, n_couriers=200, n_rvs=50, rank=1000, name="deliSense"):
+    def __init__(self, df, hour, rvs,  visited_grids, name, val_df=None, interval=60, grid_size=500, n_couriers=200, n_rvs=50, rank=1000):
         self.df = df
         self.va_df = val_df
         self.t = 0
@@ -350,9 +350,10 @@ class OrderAssignmentEnv:
                                         (-1, 1):5, 
                                         (0, 1):6, 
                                         (1, 1):7}
-
-        self.checkpoint_path = f'models_new/best_{self.name}_model.h5' #'models_new/best_model_fcn_new_1.h5'
-        self.model = models.load_model(self.checkpoint_path) #, custom_objects=custom_objects)    
+        
+        if self.name[:9] == "best_deli":
+            self.checkpoint_path = f'models_new/best_{self.name}_model.h5' 
+            self.model = models.load_model(self.checkpoint_path) 
 
         print("\n{} Model Object Created".format(self.name))
         print("\nValid Locations Per Region", [len(self.valid_div_pos[i]) for i in range(self.n)])
@@ -900,7 +901,14 @@ class OrderAssignmentEnv:
 
         rfm = np.mean(region[region >= 0])/60 if val >= 0 else -1
 
-        return np.array([cov, tfm, n_nei, sfm, rfm])
+        if self.name == "deliSense":
+            return np.array([cov, tfm, n_nei, sfm, rfm])
+        elif self.name == "deliSense_woNextLF":
+            return np.array([n_nei, sfm, rfm])
+        elif self.name == "deliSense_woLocalF":
+            return np.array([cov, tfm, rfm])
+        elif self.name == "deliSense_woZonalF":
+            return np.array([cov, tfm, n_nei, sfm])
 
     def gen_features_mat(self, state, path_rem):
         state_copy = state.copy()

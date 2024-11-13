@@ -66,7 +66,7 @@ Utility functions
 
 class KSubmodularDispatch:  
 
-    def __init__(self, orders, couriers, visited_grids, rv=False, rank=0):
+    def __init__(self, orders, couriers, visited_grids, alpha, beta, gamma, rv=False, rank=0):
 
         self.orders     = orders
         self.couriers    = couriers
@@ -76,7 +76,9 @@ class KSubmodularDispatch:
         self.sparse = False
         self.sensing_cov  = visited_grids
         self.rv = rv
-
+        self.alpha = alpha
+        self.beta = beta
+        self.gamma = gamma
         self.cur_min_LONG = 121.135
         self.cur_max_LONG = 121.8833
         self.cur_min_LAT = 31.0000
@@ -112,11 +114,24 @@ class KSubmodularDispatch:
                 delivery_time = S_p + S_d
                 time_saved = order['deadline'] - (S_p + S_d)
                 courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
+                                
 
                 if not self.rv:
-                    delivery_quotient = ((time_saved+1e-8)*(order['fee']+1e-8)) / (delivery_time+1e-8)
+                    if self.alpha == 0:
+                        temporal_index = 1
+                    else:
+                        temporal_index = ((time_saved+1e-8)*self.alpha)
+
+                    if self.beta == 0:
+                        incentive_index = 1
+                    else:
+                        incentive_index = (((order['fee']+1e-8) / (delivery_time+1e-8))*self.beta)
+
+                    delivery_quotient = temporal_index*incentive_index
+                
                 else:
                     delivery_quotient = (time_saved+1e-8)
+                
                 delivery_quotient_mat[i, j] = delivery_quotient
 
                 courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
@@ -127,6 +142,9 @@ class KSubmodularDispatch:
                 else:
                     sensing_reward = 1/(n_new_grids+1)
 
+                sensing_reward *= self.gamma
+                if self.gamma == 0:
+                    sensing_reward = 1
                 sensing_quotient_mat[i, j] = sensing_reward
 
         return delivery_quotient_mat, sensing_quotient_mat
@@ -154,9 +172,21 @@ class KSubmodularDispatch:
                 courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
 
                 if not self.rv:
-                    delivery_quotient = ((time_saved+1e-8)*(order['fee']+1e-8)) / (delivery_time+1e-8)
+                    if self.alpha == 0:
+                        temporal_index = 1
+                    else:
+                        temporal_index = ((time_saved+1e-8)*self.alpha)
+
+                    if self.beta == 0:
+                        incentive_index = 1
+                    else:
+                        incentive_index = (((order['fee']+1e-8) / (delivery_time+1e-8))*self.beta)
+
+                    delivery_quotient = temporal_index*incentive_index
+                
                 else:
                     delivery_quotient = (time_saved+1e-8)
+                
                 delivery_quotient_mat[i].append(delivery_quotient)
 
                 courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
@@ -167,7 +197,12 @@ class KSubmodularDispatch:
                 else:
                     sensing_reward = 1/(n_new_grids+1)
 
+                sensing_reward *= self.gamma
+                if self.gamma == 0:
+                    sensing_reward = 1
+                
                 sensing_quotient_mat[i].append(sensing_reward)
+                
 
         return np.array(delivery_quotient_mat), np.array(sensing_quotient_mat)
 
@@ -211,9 +246,21 @@ class KSubmodularDispatch:
                 courier_path_to_dest = get_shortest_path(courier_long_id, courier_lat_id, order_pickup_long_id, order_pickup_lat_id, order_dest_long_id, order_dest_lat_id)
 
                 if not self.rv:
-                    delivery_quotient = ((time_saved+1e-8)*(order['fee']+1e-8)) / (delivery_time+1e-8)
+                    if self.alpha == 0:
+                        temporal_index = 1
+                    else:
+                        temporal_index = ((time_saved+1e-8)*self.alpha)
+
+                    if self.beta == 0:
+                        incentive_index = 1
+                    else:
+                        incentive_index = (((order['fee']+1e-8) / (delivery_time+1e-8))*self.beta)
+
+                    delivery_quotient = temporal_index*incentive_index
+                
                 else:
                     delivery_quotient = (time_saved+1e-8)
+                
                 delivery_quotient_mat[i].append(delivery_quotient)
 
                 courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
@@ -224,6 +271,10 @@ class KSubmodularDispatch:
                 else:
                     sensing_reward = 1/(n_new_grids+1)
 
+                sensing_reward *= self.gamma
+                if self.gamma == 0:
+                    sensing_reward = 1
+                
                 sensing_quotient_mat[i].append(sensing_reward)
 
         return np.array(delivery_quotient_mat), np.array(sensing_quotient_mat)
@@ -317,7 +368,7 @@ def get_sensing_cov(order, courier, sensing_cov):
     sensing_cov = courier_path_to_dest_set | sensing_cov
     return sensing_cov
 
-def gen_quotient_one(order, courier, rv, sensing_cov):
+def gen_quotient_one(order, courier, rv, sensing_cov, alpha, beta):
 
     order_pickup_lat_id = int((cur_max_LAT - order['pickup'][1]) // block_size)
     order_pickup_long_id = int((order['pickup'][0] - cur_min_LONG) // block_size)
@@ -335,6 +386,7 @@ def gen_quotient_one(order, courier, rv, sensing_cov):
         delivery_quotient = ((time_saved+1e-8)*(order['fee']+1e-8)) / (delivery_time+1e-8)
     else:
         delivery_quotient = (time_saved+1e-8)
+    delivery_quotient *= alpha
 
     courier_path_to_dest_set = set([(x,y) for x, y in courier_path_to_dest])
     n_new_grids = len(courier_path_to_dest_set - sensing_cov)
@@ -343,19 +395,20 @@ def gen_quotient_one(order, courier, rv, sensing_cov):
         sensing_reward = n_new_grids+1
     else:
         sensing_reward = 1/(n_new_grids+1)
+    sensing_reward *= beta
     return sensing_reward*delivery_quotient
 
-def gen_quotient_all(orders, couriers, sensing_cov, rv):
+def gen_quotient_all(orders, couriers, sensing_cov, rv, alpha, beta):
 
     quotient_mat = []
     for i, order in enumerate(orders):
         for j, courier in enumerate(couriers):
-            quotient = gen_quotient_one(order, courier, rv, sensing_cov)
+            quotient = gen_quotient_one(order, courier, rv, sensing_cov, alpha, beta)
             quotient_mat.append([quotient, order['id'], courier['id'], i, j])
 
     return quotient_mat
 
-def K_Submodular_TopN_OrderDispatch(orders, couriers, k, visited_grids, rv, comm, rank, size, p_root=0):
+def K_Submodular_TopN_OrderDispatch(orders, couriers, k, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root=0):
     ''' 
     Accelerated lazy algorithm for obtaining the Top ranked couriers for each of the assigned orders.
     **NOTE** solution sets and values may be different than those found by our implementation, 
@@ -368,7 +421,7 @@ def K_Submodular_TopN_OrderDispatch(orders, couriers, k, visited_grids, rv, comm
     OUTPUTS:
     list L -- the solution, where each element in the list is an element in the solution set.
     '''
-    objective = KSubmodularDispatch(orders.copy(), couriers.copy(), visited_grids.copy(), rv, rank)
+    objective = KSubmodularDispatch(orders.copy(), couriers.copy(), visited_grids.copy(), alpha, beta, gamma, rv, rank)
 
     comm.barrier()
 
@@ -394,19 +447,19 @@ def K_Submodular_TopN_OrderDispatch(orders, couriers, k, visited_grids, rv, comm
         objective.reset()   
     return D
 
-def Distributed_TopN(orders, couriers, k, visited_grids,rv, comm, rank, size, p_root=0, seed=42, nthreads=16):
+def Distributed_TopN(orders, couriers, k, visited_grids,rv, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42, nthreads=16, ):
 
     comm.barrier()
     order_split_local = orders[rank] # np.array_split(V, size)[rank]
 
-    ele_A_local_dispatches = [ K_Submodular_TopN_OrderDispatch(order_split_local, couriers, k, visited_grids, rv, comm, rank, size, p_root=0)]
+    ele_A_local_dispatches = [ K_Submodular_TopN_OrderDispatch(order_split_local, couriers, k, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root=0)]
 
     ele_dispatches = comm.allgather(ele_A_local_dispatches)
 
     return [d for sublist in ele_dispatches for d in sublist]
 
 
-def K_Submodular_Threshold_Dispatch(orders, couriers, visited_grids, rv, comm, rank, size, p_root=0, seed=42, epsilon=0.01):
+def K_Submodular_Threshold_Dispatch(orders, couriers, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42, epsilon=0.01):
 
     """
     Implements the k-submodular Threshold Dispatch algorithm.
@@ -453,12 +506,28 @@ def K_Submodular_Threshold_Dispatch(orders, couriers, visited_grids, rv, comm, r
             else:
                 time_saved += 1
 
-            sensing_quotient = n_new_grids+1
             if not rv:
-                delivery_quotient = ((time_saved+1e-8)*(order['fee']+1e-8)) / (delivery_time+1e-8)
+                if alpha == 0:
+                    temporal_index = 1
+                else:
+                    temporal_index = ((time_saved+1e-8)*alpha)
+
+                if beta == 0:
+                    incentive_index = 1
+                else:
+                    incentive_index = (((order['fee']+1e-8) / (delivery_time+1e-8))*beta)
+
+                delivery_quotient = temporal_index*incentive_index
+            
             else:
                 delivery_quotient = (time_saved+1e-8)
-
+            
+            
+            sensing_quotient = n_new_grids+1
+            sensing_quotient *= gamma
+            if gamma == 0:
+                sensing_quotient = 1
+            
             max_reward = max(max_reward, delivery_quotient*sensing_quotient)
 
     d = max_reward
@@ -499,12 +568,28 @@ def K_Submodular_Threshold_Dispatch(orders, couriers, visited_grids, rv, comm, r
                 else:
                     time_saved += 1
 
-                sensing_quotient = n_new_grids+1
                 if not rv:
-                    delivery_quotient = ((time_saved+1e-8)*(order['fee']+1e-8)) / (delivery_time+1e-8)
+                    if alpha == 0:
+                        temporal_index = 1
+                    else:
+                        temporal_index = ((time_saved+1e-8)*alpha)
+
+                    if beta == 0:
+                        incentive_index = 1
+                    else:
+                        incentive_index = (((order['fee']+1e-8) / (delivery_time+1e-8))*beta)
+
+                    delivery_quotient = temporal_index*incentive_index
+                
                 else:
                     delivery_quotient = (time_saved+1e-8)
-
+                
+                
+                sensing_quotient = n_new_grids+1
+                sensing_quotient *= gamma
+                if gamma == 0:
+                    sensing_quotient = 1
+                
                 dispatch_quotient = delivery_quotient*sensing_quotient
 
                 if dispatch_quotient >= tau:
@@ -520,7 +605,7 @@ def K_Submodular_Threshold_Dispatch(orders, couriers, visited_grids, rv, comm, r
 
     return D
 
-def Dist_Submodular_OrderDispatch(orders, couriers, visited_grids, rv, comm, rank, size, p_root=0, seed=42):
+def Dist_Submodular_OrderDispatch(orders, couriers, visited_grids, rv, comm, rank, size, alpha, beta, p_root=0, seed=42):
     """
     Implements the k-submodular Threshold Dispatch algorithm.
 
@@ -532,7 +617,7 @@ def Dist_Submodular_OrderDispatch(orders, couriers, visited_grids, rv, comm, ran
     order_split_local = np.array_split(orders, size)[rank]
     # if rank == 0:
 
-    ele_A_local_dispatches = gen_quotient_all(order_split_local, couriers, visited_grids, rv)
+    ele_A_local_dispatches = gen_quotient_all(order_split_local, couriers, visited_grids, rv, alpha, beta)
 
     ele_dispatches = comm.allgather(ele_A_local_dispatches)
 
@@ -540,7 +625,7 @@ def Dist_Submodular_OrderDispatch(orders, couriers, visited_grids, rv, comm, ran
 
     return D
 
-def DS_MR_OD(orders, couriers, k, eps, visited_grids, rv, comm, rank, size, p_root=0, seed=42, nthreads=16):
+def DS_MR_OD(orders, couriers, k, eps, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42):
     '''
     The parallelizable distributed algorithm DeliSense-MapReduce_OrderDispatch. Uses multiple machines to obtain solution
     PARALLEL IMPLEMENTATION (Multithread)
@@ -571,7 +656,7 @@ def DS_MR_OD(orders, couriers, k, eps, visited_grids, rv, comm, rank, size, p_ro
 
     if rank == 0:
         print("\nStarting Distributed K_Submodular_TopN_OrderDispatch...")
-    S_DistGreedy_split = Distributed_TopN(V, couriers, k, visited_grids, rv, comm, rank, size, p_root, seed)
+    S_DistGreedy_split = Distributed_TopN(V, couriers, k, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root, seed)
     if rank == 0:
         print("\nCompleted Distributed K_Submodular_TopN_OrderDispatch\n")
 
@@ -596,7 +681,7 @@ def DS_MR_OD(orders, couriers, k, eps, visited_grids, rv, comm, rank, size, p_ro
             couriers_updated.append(couriers[d])
             couriers_subset.add(d)
 
-    D = K_Submodular_Threshold_Dispatch(orders, couriers_updated, visited_grids, rv, comm, rank, size, p_root=0, seed=42)
+    D = K_Submodular_Threshold_Dispatch(orders, couriers_updated, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42)
 
     if rank == 0:
         print("\nCompleted K_Submodular_Threshold_Dispatch\n")
@@ -609,8 +694,17 @@ if __name__ == "__main__":
     rank = comm.Get_rank()
     size = comm.Get_size()
     n_rvs = int(sys.argv[1]) # Number of AVs
+    alpha = int(sys.argv[2]) # Alpha parameter for delivery quotient
+    beta = int(sys.argv[3]) # Beta parameter for sensing quotient
+    gamma = int(sys.argv[4])
+    name = sys.argv[5]
+
+    alpha=alpha/10
+    beta=beta/10
+    gamma=gamma/10
+
     k = 2
-    out_fname=f"results/MR-KSubMod-Result_DeliSense_{n_rvs}.csv"
+    out_fname=f"results/MR-KSubMod-Result_{name}_{n_rvs}_{str(alpha)}_{str(beta)}_{str(gamma)}.csv"
     if rank == 0:
         print('Initializing run')
 
@@ -623,13 +717,13 @@ if __name__ == "__main__":
 
     results = []
 
-    env = OrderAssignmentEnv(df, 0, rvs, visited_grids, interval=interval, n_couriers=hourly_riders_dict[0], n_rvs=n_rvs, rank=rank)
+    env = OrderAssignmentEnv(df, 0, rvs, visited_grids, name=name, interval=interval, n_couriers=hourly_riders_dict[0], n_rvs=n_rvs, rank=rank)
     overdue_cnt = 0
 
     for h in range(24):
         if rank==0:
             print("Initiating New OrderAssignmentEnv")
-        env = OrderAssignmentEnv(df, 0, rvs, visited_grids, interval=interval, n_couriers=hourly_riders_dict[h], n_rvs=n_rvs, rank=rank)
+        env = OrderAssignmentEnv(df, 0, rvs, visited_grids, name=name, interval=interval, n_couriers=hourly_riders_dict[h], n_rvs=n_rvs, rank=rank)
 
         env.t = 0
         env.time_intervals = generate_time_intervals(h, interval)
@@ -668,7 +762,7 @@ if __name__ == "__main__":
                     if rank == 0:
                         print("No Driver Available")
                     break
-                D = DS_MR_OD(orders_rem, couriers_rem, k, 0.05, visited_grids, False, comm, rank, size, p_root=0, seed=42)
+                D = DS_MR_OD(orders_rem, couriers_rem, k, 0.05, visited_grids, False, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42)
                 total_rew = 0
                 orders_rem = [order for order in env.orders if order['delivery_time'] <= 0]
 
@@ -722,7 +816,7 @@ if __name__ == "__main__":
                     break
 
                 # AV Driver Assignments
-                D = DS_MR_OD(orders_rem, couriers_rem, k, 0.05, visited_grids, True, comm, rank, size, p_root=0, seed=42)
+                D = DS_MR_OD(orders_rem, couriers_rem, k, 0.05, visited_grids, True, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42)
                 total_rew = 0
 
                 for rew, o_id, d_id in D:

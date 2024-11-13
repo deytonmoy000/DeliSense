@@ -861,7 +861,7 @@ if __name__ == "__main__":
 
     name = sys.argv[1]
     n_rvs = int(sys.argv[2]) # Number of RVs
-    print('Initializing run')
+    print(f"Initializing run for {name} with {n_rvs} RVs")
 
     rvs = generate_rvs(n_rvs)
     visited_grids = get_visited_grid(500)
@@ -872,12 +872,12 @@ if __name__ == "__main__":
 
     results = []
 
-    env = OrderAssignmentEnv(df, 0, rvs, visited_grids, interval=interval, n_couriers=hourly_riders_dict[0], n_rvs=n_rvs)
+    env = OrderAssignmentEnv(df, 0, rvs, visited_grids, name, interval=interval, n_couriers=hourly_riders_dict[0], n_rvs=n_rvs)
     overdue_cnt = 0
 
     for h in range(24):
         print("Initiating New OrderAssignmentEnv")
-        env = OrderAssignmentEnv(df, 0, rvs, visited_grids, interval=interval, n_couriers=hourly_riders_dict[h], n_rvs=n_rvs)
+        env = OrderAssignmentEnv(df, 0, rvs, visited_grids, name, interval=interval, n_couriers=hourly_riders_dict[h], n_rvs=n_rvs)
 
         env.t = 0
         env.time_intervals = generate_time_intervals(h, interval)
@@ -906,7 +906,13 @@ if __name__ == "__main__":
             print(f"Available RVs After Decrement: {len(couriers)}")
 
             while len(orders_rem) != 0:
-                all_couriers = couriers_rem + couriers_rem_rv    
+                if name[:4] == "lsta" or name[:4] == "ajrp":
+                    if len(couriers_rem):
+                        all_couriers = couriers_rem
+                    else:
+                        all_couriers = couriers_rem_rv
+                else:
+                    all_couriers = couriers_rem + couriers_rem_rv   
                 orders_rem = [order for order in env.orders if order['delivery_time'] <= 0]
 
                 orders_rem_old = orders_rem
@@ -1003,6 +1009,7 @@ if __name__ == "__main__":
         results.append({
             "Model": name,
             "Hour": h,
+            "nRVs": n_rvs,
             "Total_Sensing_Coverage": len(visited_grids),
             "New_Locations_Sensing_Coverage": new_locs,
             "Order_Overdue": overdue_cnt,
