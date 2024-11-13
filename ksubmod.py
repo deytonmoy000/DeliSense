@@ -627,7 +627,7 @@ def Dist_Submodular_OrderDispatch(orders, couriers, visited_grids, rv, comm, ran
 
 def DS_MR_OD(orders, couriers, k, eps, visited_grids, rv, alpha, beta, gamma, comm, rank, size, p_root=0, seed=42):
     '''
-    The parallelizable distributed algorithm DeliSense-MapReduce_OrderDispatch. Uses multiple machines to obtain solution
+    The parallelizable distributed algorithm HRSense-MapReduce_OrderDispatch. Uses multiple machines to obtain solution
     PARALLEL IMPLEMENTATION (Multithread)
 
     
@@ -867,7 +867,7 @@ if __name__ == "__main__":
             print(f"\n-x-x-x-x-x-x-x-x-x-x-\n")
 
             results.append({
-                "Model": "DeliSense",
+                "Model": "HRSense",
                 "Hour": h,
                 "nRVs": n_rvs,
                 "Total_Sensing_Coverage": len(visited_grids),

@@ -901,13 +901,13 @@ class OrderAssignmentEnv:
 
         rfm = np.mean(region[region >= 0])/60 if val >= 0 else -1
 
-        if self.name == "deliSense":
+        if self.name == "HRSense":
             return np.array([cov, tfm, n_nei, sfm, rfm])
-        elif self.name == "deliSense_woNextLF":
+        elif self.name == "HRSense_woNextLF":
             return np.array([n_nei, sfm, rfm])
-        elif self.name == "deliSense_woLocalF":
+        elif self.name == "HRSense_woLocalF":
             return np.array([cov, tfm, rfm])
-        elif self.name == "deliSense_woZonalF":
+        elif self.name == "HRSense_woZonalF":
             return np.array([cov, tfm, n_nei, sfm])
 
     def gen_features_mat(self, state, path_rem):

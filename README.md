@@ -13,7 +13,7 @@ HRSense: Joint Urban Sensing and Crowdsourcing with Human-Robot Collaboration
 
 ### How run
 -  Run HRsense:
-    -  Run mpirun -np **#Processes** --bind-to none python3 -W ignore *ksubmod.py* **#AVS** **r^T coefficient** **r^C coefficient** **r^I coefficient** deliSense
+    -  Run mpirun -np **#Processes** --bind-to none python3 -W ignore *ksubmod.py* **#AVS** **r^T coefficient** **r^C coefficient** **r^I coefficient** HRSense
 -  Run Fastest-Delivery (FastD):
     -  Run *python *baselines.py* **fdd-sdp** **#AVS**.
 -  Run Best-Sensing (BestS):
